@@ -25,14 +25,14 @@ Si defines `API_TOKEN`, incluye `X-Pulso-Token` o `Authorization: Bearer <token>
 
 ## Render / Railway
 
-Despliegue rápido en Render: [crear Blueprint desde este repositorio](https://dashboard.render.com/blueprint/new?repo=https%3A%2F%2Fgithub.com%2FAdrinoaimar%2Fpulso-crm). Selecciona `server/render.yaml`, define `CORS_ORIGIN` con `https://adrinoaimar.github.io` y conserva volumen persistente.
+Despliegue rápido en Render: [crear Blueprint desde este repositorio](https://dashboard.render.com/blueprint/new?repo=https%3A%2F%2Fgithub.com%2FAdrinoaimar%2Fpulso-crm). Selecciona `server/render.yaml` y define `CORS_ORIGIN` con `https://adrinoaimar.github.io`. El Blueprint está en plan gratuito y no solicita tarjeta.
 
 Crear servicio Node desde subdirectorio `server`:
 
 - Build command: `npm ci`
 - Start command: `npm start`
 - Variables: `PORT` (la plataforma la inyecta), `CORS_ORIGIN` con dominio del frontend, `API_TOKEN` opcional.
-- Añadir volumen persistente en `/app/server/.data` (Render Disk) o volumen Railway. Sin volumen, se pierde sesión QR en cada redeploy.
+- El plan gratuito no incluye volumen persistente: la sesión puede pedir un nuevo QR tras reinicios o redeploys. Para producción, añade un Render Disk montado en `/opt/render/project/src/server/.data` y usa un plan que lo admita.
 
 El proceso debe permanecer activo. GitHub Pages solo aloja frontend; no puede ejecutar Baileys.
 

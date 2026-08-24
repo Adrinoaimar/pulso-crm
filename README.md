@@ -36,3 +36,9 @@ El frontend espera backend en `VITE_WA_BACKEND_URL` con:
 - `GET /api/events` entrega SSE `status`, `qr` y `message`.
 
 Datos CRM siguen en `localStorage`; autenticación multiusuario, adjuntos y webhooks quedan pendientes del bridge/producto. La fuente carga Google Fonts en desarrollo; familias respaldo mantienen UI sin red.
+
+## Instancia pública actual
+
+- Frontend: https://adrinoaimar.github.io/pulso-crm/
+- Bridge QR: https://pulso-crm-whatsapp.onrender.com
+- El bridge gratuito puede dormir por inactividad y perder la sesión tras reinicios; en ese caso pulsa `Obtener nuevo QR`.
