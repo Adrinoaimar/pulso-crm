@@ -12,6 +12,7 @@ export type WhatsAppConnection = "disconnected" | "connecting" | "qr" | "connect
 export type WhatsAppConnectionMethod = "qr" | "api";
 export type WhatsAppBackendSnapshot = { status: WhatsAppConnection; qrDataUrl?: string; phone?: string; error?: string; updatedAt?: string };
 export type WhatsAppEvent = { type: "status" | "qr" | "message" | string; status?: WhatsAppConnection; qrDataUrl?: string; phone?: string; conversationId?: string; id?: string; text?: string; body?: string; from?: string; sender?: string; chatId?: string; direction?: "inbound" | "outbound"; timestamp?: string };
+export type WhatsAppMessage = { id: string; direction: "inbound" | "outbound"; chatId: string; sender?: string | null; text: string; timestamp: string; fromMe?: boolean };
 type StoredWhatsAppIntegration = { apiKey?: string; connection: WhatsAppConnection; method?: WhatsAppConnectionMethod; connectedAt?: string; updatedAt?: string; backendUrl?: string; qrDataUrl?: string; phone?: string; error?: string };
 
 const WHATSAPP_STORAGE_KEY = "pulso.crm.whatsapp";
@@ -117,6 +118,15 @@ export async function fetchWhatsAppStatus() { const snapshot = normalizeSnapshot
 export async function connectWhatsAppQr() { const snapshot = normalizeSnapshot(await requestBackend("/api/whatsapp/connect", { method: "POST" })); persistSnapshot(snapshot); return snapshot; }
 export async function fetchWhatsAppQr() { const snapshot = normalizeSnapshot(await requestBackend("/api/whatsapp/qr")); persistSnapshot(snapshot); return snapshot; }
 export async function disconnectWhatsAppRemote() { const snapshot = normalizeSnapshot(await requestBackend("/api/whatsapp/disconnect", { method: "POST" })); persistSnapshot({ ...snapshot, status: "disconnected", qrDataUrl: undefined }); return snapshot; }
+export async function fetchWhatsAppMessages(): Promise<WhatsAppMessage[]> {
+  const payload = await requestBackend("/api/whatsapp/messages");
+  if (!Array.isArray(payload?.messages)) return [];
+  return payload.messages.filter((value): value is WhatsAppMessage => {
+    if (!value || typeof value !== "object") return false;
+    const item = value as Partial<WhatsAppMessage>;
+    return typeof item.id === "string" && (item.direction === "inbound" || item.direction === "outbound") && typeof item.chatId === "string" && typeof item.text === "string";
+  });
+}
 
 export function subscribeWhatsAppStatus(onSnapshot: (snapshot: WhatsAppBackendSnapshot) => void, onError?: (error: Error) => void, intervalMs = 2500) {
   let stopped = false; let timer: number | undefined;

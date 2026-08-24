@@ -30,12 +30,13 @@ import {
 } from "lucide-react";
 import { useStore } from "./store";
 import { users } from "./data";
-import type { Automation, Contact, Deal, Module } from "./types";
+import type { Automation, Contact, Conversation, Deal, Message, Module, Store } from "./types";
 import { Drawer, Empty, Pill, Signal, Toast } from "./components";
 import {
   clearWhatsAppApiKey,
   disconnectWhatsAppRemote,
   connectWhatsAppQr,
+  fetchWhatsAppMessages,
   fetchWhatsAppQr,
   fetchWhatsAppStatus,
   getWhatsAppIntegration,
@@ -44,6 +45,8 @@ import {
   saveWhatsAppApiKey,
   subscribeWhatsAppStatus,
   subscribeWhatsAppEvents,
+  type WhatsAppEvent,
+  type WhatsAppMessage,
   WhatsAppProvider,
 } from "./providers";
 const money = (n: number) =>
@@ -83,9 +86,115 @@ const localAiReply = (message: string, contactName: string) => {
     escalates: false,
   };
 };
+
+const remotePhone = (value: string) => value.replace(/\D/g, "");
+const remoteConversationId = (chatId: string) => `wa-${chatId.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+const remoteMessageTime = (timestamp?: string) => {
+  if (!timestamp) return "Ahora";
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.valueOf())) return "Ahora";
+  return new Intl.DateTimeFormat("es-PE", { hour: "2-digit", minute: "2-digit" }).format(date);
+};
+const remoteContact = (chatId: string): Contact => {
+  const phone = remotePhone(chatId);
+  return {
+    id: `wa-contact-${chatId.replace(/[^a-zA-Z0-9_-]/g, "-")}`,
+    name: phone ? `WhatsApp +${phone}` : "Contacto de WhatsApp",
+    phone: phone ? `+${phone}` : chatId,
+    email: "",
+    company: "WhatsApp",
+    tags: ["WhatsApp"],
+    owner: "Ana Torres",
+    consent: true,
+  };
+};
+const remoteConversation = (chatId: string, messages: Message[]): Conversation => {
+  const last = messages.at(-1);
+  return {
+    id: remoteConversationId(chatId),
+    contactId: remoteContact(chatId).id,
+    queue: "WhatsApp",
+    status: last?.from === "contact" ? "abierta" : "esperando",
+    priority: "media",
+    assignee: "Ana Torres",
+    unread: 0,
+    sla: 0,
+    aiMode: "Copiloto",
+    tags: ["WhatsApp"],
+    messages,
+  };
+};
+const remoteStore = (data: Store, remoteMessages: WhatsAppMessage[]): Store => {
+  const grouped = new Map<string, WhatsAppMessage[]>();
+  for (const message of remoteMessages) {
+    if (!message.chatId || !message.text.trim()) continue;
+    const group = grouped.get(message.chatId) || [];
+    group.push(message);
+    grouped.set(message.chatId, group);
+  }
+  const contacts: Contact[] = [];
+  const conversations: Conversation[] = [];
+  for (const [chatId, values] of grouped) {
+    const messages: Message[] = values
+      .sort((a, b) => new Date(a.timestamp).valueOf() - new Date(b.timestamp).valueOf())
+      .map((message) => ({
+        id: message.id,
+        from: message.direction === "outbound" || message.fromMe ? "agent" : "contact",
+        body: message.text,
+        time: remoteMessageTime(message.timestamp),
+      }));
+    contacts.push(remoteContact(chatId));
+    conversations.push(remoteConversation(chatId, messages));
+  }
+  return { ...data, contacts, conversations };
+};
+const eventToRemoteMessage = (event: WhatsAppEvent): WhatsAppMessage | null => {
+  const text = event.text || event.body || "";
+  const chatId = event.chatId || event.from || event.sender || event.phone || "";
+  if (!text.trim() || !chatId) return null;
+  return {
+    id: event.id || crypto.randomUUID(),
+    direction: event.direction === "outbound" ? "outbound" : "inbound",
+    chatId,
+    sender: event.sender || event.from || null,
+    text,
+    timestamp: event.timestamp || new Date().toISOString(),
+    fromMe: event.direction === "outbound",
+  };
+};
+const addRemoteMessage = (data: Store, message: WhatsAppMessage): Store => {
+  const contact = remoteContact(message.chatId);
+  const id = remoteConversationId(message.chatId);
+  const nextMessage: Message = {
+    id: message.id,
+    from: message.direction === "outbound" || message.fromMe ? "agent" : "contact",
+    body: message.text,
+    time: remoteMessageTime(message.timestamp),
+  };
+  const existing = data.conversations.find((item) => item.id === id);
+  if (!existing) {
+    return {
+      ...data,
+      contacts: [contact, ...data.contacts.filter((item) => item.id !== contact.id)],
+      conversations: [remoteConversation(message.chatId, [nextMessage]), ...data.conversations],
+    };
+  }
+  if (existing.messages.some((item) => item.id === nextMessage.id)) return data;
+  return {
+    ...data,
+    conversations: data.conversations.map((item) => item.id === id ? {
+      ...item,
+      messages: [...item.messages, nextMessage],
+      unread: nextMessage.from === "contact" ? item.unread + 1 : item.unread,
+      status: nextMessage.from === "contact" ? "abierta" : "esperando",
+    } : item),
+  };
+};
 export function Dashboard({ go }: { go: (m: Module) => void }) {
   const { data } = useStore();
-  const open = data.conversations.filter((x) => x.status !== "resuelta");
+  const realConnected = getWhatsAppIntegration().real && getWhatsAppIntegration().connection === "connected";
+  const open = (realConnected ? data.conversations.filter((x) => x.id.startsWith("wa-")) : data.conversations).filter((x) => x.status !== "resuelta");
+  const deals = realConnected ? data.deals.filter((deal) => !/^d[1-4]$/.test(deal.id)) : data.deals;
   return (
     <div className="page">
       <div className="page-head">
@@ -108,18 +217,18 @@ export function Dashboard({ go }: { go: (m: Module) => void }) {
         </article>
         <article>
           <span>Primera respuesta</span>
-          <strong>4m 18s</strong>
-          <small>Objetivo: menos de 5 min</small>
+          <strong>{realConnected ? "—" : "4m 18s"}</strong>
+          <small>{realConnected ? "Sin datos reales todavía" : "Objetivo: menos de 5 min"}</small>
         </article>
         <article>
           <span>Negocios en riesgo</span>
-          <strong>3</strong>
-          <small className="danger">Requieren seguimiento</small>
+          <strong>{realConnected ? "0" : "3"}</strong>
+          <small className={realConnected ? undefined : "danger"}>{realConnected ? "Sin datos reales todavía" : "Requieren seguimiento"}</small>
         </article>
         <article>
           <span>Valor del embudo</span>
-          <strong>{money(data.deals.reduce((s, x) => s + x.value, 0))}</strong>
-          <small>4 oportunidades activas</small>
+          <strong>{money(deals.reduce((s, x) => s + x.value, 0))}</strong>
+          <small>{realConnected ? "Sin negocios reales todavía" : "4 oportunidades activas"}</small>
         </article>
       </section>
       <div className="dash-grid">
@@ -184,7 +293,7 @@ export function Dashboard({ go }: { go: (m: Module) => void }) {
                 <b>{u.name}</b>
                 <small>
                   {
-                    [
+                    realConnected ? "Sin datos reales" : [
                       "5 conversaciones",
                       "3 conversaciones",
                       "2 conversaciones",
@@ -215,7 +324,7 @@ export function Dashboard({ go }: { go: (m: Module) => void }) {
               <span>{s}</span>
               <b>
                 {money(
-                  data.deals
+                deals
                     .filter((x) => x.stage === s)
                     .reduce((a, x) => a + x.value, 0),
                 )}
@@ -230,39 +339,74 @@ export function Dashboard({ go }: { go: (m: Module) => void }) {
 export function Inbox({ offline }: { offline: boolean }) {
   const { data, setData } = useStore();
   const initial = location.hash.split("/")[1];
-  const [selected, setSelected] = useState(
+  const [selected, setSelected] = useState<string | undefined>(
     initial || data.conversations[0]?.id,
   );
+  const [integration, setIntegration] = useState(getWhatsAppIntegration);
+  const remoteSyncRef = useRef(false);
   const [queue, setQueue] = useState("Todas");
   const [draft, setDraft] = useState("");
   const [note, setNote] = useState(false);
   const [context, setContext] = useState(false);
   const [toast, setToast] = useState("");
   const composer = useRef<HTMLTextAreaElement>(null);
-  const list = data.conversations.filter(
+  const realBackend = integration.real;
+  const remoteConnected = realBackend && integration.connection === "connected";
+  const visibleConversations = remoteConnected
+    ? data.conversations.filter((item) => item.id.startsWith("wa-"))
+    : data.conversations;
+  const list = visibleConversations.filter(
     (x) => queue === "Todas" || x.queue === queue,
   );
-  const cv = data.conversations.find((x) => x.id === selected);
+  const cv = visibleConversations.find((x) => x.id === selected);
   const contact = data.contacts.find((x) => x.id === cv?.contactId);
-  const realBackend = getWhatsAppIntegration().real;
+  useEffect(() => {
+    const sync = () => {
+      const next = getWhatsAppIntegration();
+      setIntegration(next);
+      if (next.connection !== "connected") remoteSyncRef.current = false;
+    };
+    window.addEventListener("pulso:whatsapp", sync);
+    return () => window.removeEventListener("pulso:whatsapp", sync);
+  }, []);
+  useEffect(() => {
+    if (!realBackend) return;
+    return subscribeWhatsAppStatus((snapshot) => {
+      setIntegration(getWhatsAppIntegration());
+      if (snapshot.status !== "connected") remoteSyncRef.current = false;
+    }, (error) => setToast(`Backend WhatsApp: ${error.message}`));
+  }, [realBackend]);
+  useEffect(() => {
+    if (!remoteConnected || remoteSyncRef.current) return;
+    remoteSyncRef.current = true;
+    void fetchWhatsAppMessages().then((messages) => {
+      setData((current) => {
+        const next = remoteStore(current, messages);
+        setSelected(next.conversations.some((item) => item.id === selected) ? selected : next.conversations[0]?.id);
+        return next;
+      });
+    }).catch((error) => {
+      // Connected mode must never fall back to seeded/demo conversations.
+      setData((current) => {
+        const next = remoteStore(current, []);
+        setSelected(undefined);
+        return next;
+      });
+      setToast(error instanceof Error ? `No se pudieron cargar mensajes reales: ${error.message}` : "No se pudieron cargar mensajes reales");
+    });
+  }, [remoteConnected, selected, setData]);
   useEffect(() => {
     if (!realBackend) return;
     return subscribeWhatsAppEvents((event) => {
       if (event.type !== "message" || event.direction === "outbound") return;
-      const body = event.text || event.body;
-      if (!body) return;
-      const remotePhone = (event.from || event.phone || event.sender || event.chatId || "").replace(/\D/g, "");
-      setData((d) => {
-        const conversation = d.conversations.find((item) => {
-          if (event.conversationId) return item.id === event.conversationId;
-          const phone = d.contacts.find((candidate) => candidate.id === item.contactId)?.phone.replace(/\D/g, "") || "";
-          return Boolean(remotePhone && phone && (remotePhone.endsWith(phone) || phone.endsWith(remotePhone)));
-        });
-        if (!conversation) return d;
-        return { ...d, conversations: d.conversations.map((item) => item.id === conversation.id ? { ...item, messages: [...item.messages, { id: event.id || crypto.randomUUID(), from: "contact", body, time: "Ahora" }], unread: item.id === selected ? 0 : item.unread + 1, status: "abierta" } : item) };
-      });
+      const message = eventToRemoteMessage(event);
+      if (!message) return;
+      setData((d) => addRemoteMessage(d, message));
+      if (!selected || !data.conversations.some((item) => item.id === remoteConversationId(message.chatId))) {
+        setSelected(remoteConversationId(message.chatId));
+      }
     });
-  }, [realBackend, selected, setData]);
+  }, [realBackend, selected, data.conversations, setData]);
   const update = (patch: Partial<NonNullable<typeof cv>>) =>
     setData((d) => ({
       ...d,
@@ -414,8 +558,8 @@ export function Inbox({ offline }: { offline: boolean }) {
             <span>{q}</span>
             <b>
               {q === "Todas"
-                ? data.conversations.length
-                : data.conversations.filter((x) => x.queue === q).length}
+                ? visibleConversations.length
+                : visibleConversations.filter((x) => x.queue === q).length}
             </b>
           </button>
         ))}
@@ -431,7 +575,7 @@ export function Inbox({ offline }: { offline: boolean }) {
         <button>
           <span>Resueltas</span>
           <b>
-            {data.conversations.filter((x) => x.status === "resuelta").length}
+            {visibleConversations.filter((x) => x.status === "resuelta").length}
           </b>
         </button>
       </aside>
@@ -579,9 +723,11 @@ export function Inbox({ offline }: { offline: boolean }) {
               <button className="ai-suggest" onClick={suggest} title="Usar respuesta local de IA">
                 <Sparkles /> Sugerir
               </button>
-              <button className="ai-suggest" onClick={simulateIncoming} title="Agregar un mensaje de prueba">
-                <Bot /> Simular entrada
-              </button>
+              {!remoteConnected && (
+                <button className="ai-suggest" onClick={simulateIncoming} title="Agregar un mensaje de prueba">
+                  <Bot /> Simular entrada
+                </button>
+              )}
             </div>
             <textarea
               ref={composer}
@@ -622,8 +768,8 @@ export function Inbox({ offline }: { offline: boolean }) {
         </section>
       ) : (
         <Empty
-          title="Sin conversación"
-          body="Selecciona una conversación para empezar."
+          title={remoteConnected ? "Sin mensajes de WhatsApp" : "Sin conversación"}
+          body={remoteConnected ? "La cuenta está conectada. Cuando llegue un mensaje nuevo aparecerá aquí." : "Selecciona una conversación para empezar."}
         />
       )}
       {context && contact && (
@@ -671,7 +817,9 @@ export function Contacts() {
   const [q, setQ] = useState("");
   const [open, setOpen] = useState<Contact | null>(null);
   const [creating, setCreating] = useState(false);
-  const list = data.contacts.filter((c) =>
+  const realConnected = getWhatsAppIntegration().real && getWhatsAppIntegration().connection === "connected";
+  const visibleContacts = realConnected ? data.contacts.filter((contact) => !/^c[1-4]$/.test(contact.id)) : data.contacts;
+  const list = visibleContacts.filter((c) =>
     (c.name + c.company + c.phone).toLowerCase().includes(q.toLowerCase()),
   );
   const add = (e: React.FormEvent<HTMLFormElement>) => {
@@ -697,11 +845,11 @@ export function Contacts() {
           <p className="eyebrow">BASE COMERCIAL</p>
           <h2>Contactos</h2>
           <p>
-            {data.contacts.length} personas · datos persistidos en este
+            {visibleContacts.length} personas · datos persistidos en este
             navegador
           </p>
         </div>
-        <button className="primary" onClick={() => setCreating(true)}>
+        <button className="primary" onClick={() => setCreating(true)} disabled={realConnected && !visibleContacts.length}>
           <Plus /> Nuevo contacto
         </button>
       </div>
@@ -782,7 +930,7 @@ export function Contacts() {
         ) : (
           <Empty
             title="Sin resultados"
-            body="Prueba con otro término de búsqueda."
+            body={realConnected ? "Aún no hay contactos reales de WhatsApp." : "Prueba con otro término de búsqueda."}
           />
         )}
       </section>
@@ -866,6 +1014,9 @@ export function Pipeline() {
   const { data, setData } = useStore();
   const [toast, setToast] = useState("");
   const [creating, setCreating] = useState(false);
+  const realConnected = getWhatsAppIntegration().real && getWhatsAppIntegration().connection === "connected";
+  const visibleDeals = realConnected ? data.deals.filter((deal) => !/^d[1-4]$/.test(deal.id)) : data.deals;
+  const visibleContacts = realConnected ? data.contacts.filter((contact) => !/^c[1-4]$/.test(contact.id)) : data.contacts;
   const move = (deal: Deal, stage: string) => {
     setData((d) => ({
       ...d,
@@ -881,7 +1032,7 @@ export function Pipeline() {
           <p className="eyebrow">PIPELINE PRINCIPAL</p>
           <h2>Negocios</h2>
           <p>
-            {money(data.deals.reduce((s, x) => s + x.value, 0))} en valor total
+            {money(visibleDeals.reduce((s, x) => s + x.value, 0))} en valor total
           </p>
         </div>
         <button className="primary" onClick={() => setCreating(true)}>
@@ -890,14 +1041,14 @@ export function Pipeline() {
       </div>
       <div className="board">
         {stages.map((stage) => {
-          const deals = data.deals.filter((x) => x.stage === stage);
+          const deals = visibleDeals.filter((x) => x.stage === stage);
           return (
             <section
               className="stage"
               key={stage}
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => {
-                const d = data.deals.find(
+                const d = visibleDeals.find(
                   (x) => x.id === e.dataTransfer.getData("text"),
                 );
                 if (d) move(d, stage);
@@ -912,7 +1063,7 @@ export function Pipeline() {
                 <strong>{money(deals.reduce((s, x) => s + x.value, 0))}</strong>
               </header>
               {deals.map((d) => {
-                const c = data.contacts.find((x) => x.id === d.contactId)!;
+                const c = visibleContacts.find((x) => x.id === d.contactId);
                 return (
                   <article
                     className="deal-card"
@@ -932,7 +1083,7 @@ export function Pipeline() {
                     <div>
                       <div className="deal-top">
                         <GripVertical />
-                        <small>{c.company}</small>
+                        <small>{c?.company || "Contacto no disponible"}</small>
                       </div>
                       <h3>{d.title}</h3>
                       <strong>{money(d.value)}</strong>
@@ -957,7 +1108,7 @@ export function Pipeline() {
                   </article>
                 );
               })}
-              <button className="add-card" onClick={() => setCreating(true)}>
+              <button className="add-card" onClick={() => setCreating(true)} disabled={realConnected && !visibleContacts.length}>
                 <Plus /> Añadir negocio
               </button>
             </section>
@@ -993,8 +1144,8 @@ export function Pipeline() {
             </label>
             <label>
               Contacto
-              <select name="contactId" required defaultValue={data.contacts[0]?.id}>
-                {data.contacts.map((c) => (
+              <select name="contactId" required defaultValue={visibleContacts[0]?.id}>
+                {visibleContacts.map((c) => (
                   <option value={c.id} key={c.id}>
                     {c.name} · {c.company}
                   </option>
