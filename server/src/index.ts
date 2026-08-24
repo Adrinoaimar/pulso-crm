@@ -1,10 +1,11 @@
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
-import { mkdir } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import makeWASocket, {
   DisconnectReason,
   makeCacheableSignalKeyStore,
+  Browsers,
   useMultiFileAuthState,
   type WASocket,
 } from "@whiskeysockets/baileys";
@@ -38,6 +39,7 @@ const root = resolve(here, "..");
 const port = Number(process.env.PORT ?? 8787);
 const host = process.env.HOST ?? "0.0.0.0";
 const authDir = resolve(root, process.env.AUTH_DIR ?? ".data/auth");
+const messageStorePath = resolve(root, process.env.MESSAGE_STORE ?? ".data/messages.json");
 const corsOrigin = process.env.CORS_ORIGIN ?? "*";
 const apiToken = process.env.API_TOKEN?.trim();
 const logger = pino({ level: process.env.LOG_LEVEL ?? "info" });
@@ -58,6 +60,22 @@ let status: PublicStatus = {
 
 const messages: MessageEvent[] = [];
 const sseClients = new Set<ServerResponse>();
+
+async function loadMessages() {
+  try {
+    const raw = await readFile(messageStorePath, "utf8");
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) messages.push(...parsed.slice(-200));
+  } catch {
+    // First boot or an ephemeral Render filesystem: start with an empty inbox.
+  }
+}
+
+function persistMessages() {
+  void mkdir(dirname(messageStorePath), { recursive: true })
+    .then(() => writeFile(messageStorePath, JSON.stringify(messages), "utf8"))
+    .catch((error) => logger.warn({ error }, "No se pudo persistir el historial WhatsApp"));
+}
 
 function setStatus(patch: Partial<PublicStatus>) {
   const next = { ...status, ...patch };
@@ -80,8 +98,10 @@ function broadcast(event: string, payload: unknown) {
 }
 
 function rememberMessage(message: MessageEvent) {
+  if (messages.some((item) => item.id === message.id && item.chatId === message.chatId && item.direction === message.direction)) return;
   messages.push(message);
   if (messages.length > 200) messages.splice(0, messages.length - 200);
+  persistMessages();
   broadcast("message", message);
 }
 
@@ -138,6 +158,23 @@ function normalizeRecipient(value: string) {
   return `${digits}@s.whatsapp.net`;
 }
 
+function rememberBaileysMessages(incoming: any[]) {
+  for (const message of incoming) {
+    const text = textFromMessage(message);
+    const chatId = message?.key?.remoteJid ?? "";
+    if (!chatId || !text) continue;
+    rememberMessage({
+      id: message.key.id ?? crypto.randomUUID(),
+      direction: message.key.fromMe ? "outbound" : "inbound",
+      chatId,
+      sender: message.key.participant ?? (message.key.fromMe ? socket?.user?.id ?? null : chatId),
+      text,
+      timestamp: new Date(Number(message.messageTimestamp ?? Date.now()) * 1000).toISOString(),
+      fromMe: Boolean(message.key.fromMe),
+    });
+  }
+}
+
 async function startSocket(): Promise<void> {
   if (connecting) return connecting;
   if (socket && status.connection === "connected") return;
@@ -154,7 +191,8 @@ async function startSocket(): Promise<void> {
       printQRInTerminal: false,
       logger,
       markOnlineOnConnect: false,
-      syncFullHistory: false,
+      browser: Browsers.macOS("Desktop"),
+      syncFullHistory: true,
     });
     socket.ev.on("creds.update", saveCreds);
     socket.ev.on("connection.update", async ({ connection, lastDisconnect, qr }) => {
@@ -190,22 +228,9 @@ async function startSocket(): Promise<void> {
       }
     });
     socket.ev.on("messages.upsert", ({ messages: incoming, type }) => {
-      if (type !== "notify") return;
-      for (const message of incoming) {
-        const text = textFromMessage(message);
-        const chatId = message.key.remoteJid ?? "";
-        if (!chatId || !text) continue;
-        rememberMessage({
-          id: message.key.id ?? crypto.randomUUID(),
-          direction: message.key.fromMe ? "outbound" : "inbound",
-          chatId,
-          sender: message.key.participant ?? (message.key.fromMe ? socket?.user?.id ?? null : chatId),
-          text,
-          timestamp: new Date(Number(message.messageTimestamp ?? Date.now()) * 1000).toISOString(),
-          fromMe: Boolean(message.key.fromMe),
-        });
-      }
+      if (type === "notify" || type === "append") rememberBaileysMessages(incoming);
     });
+    socket.ev.on("messaging-history.set", ({ messages: history }) => rememberBaileysMessages(history));
   })().finally(() => {
     connecting = null;
   });
@@ -299,8 +324,10 @@ const server = http.createServer((req, res) => {
   });
 });
 
-server.listen(port, host, () => {
-  logger.info({ host, port, authDir }, "Pulso CRM WhatsApp bridge listo");
+void loadMessages().finally(() => {
+  server.listen(port, host, () => {
+    logger.info({ host, port, authDir, messageStorePath }, "Pulso CRM WhatsApp bridge listo");
+  });
 });
 
 process.on("SIGINT", async () => {

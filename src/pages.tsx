@@ -407,9 +407,29 @@ export function Inbox({ offline }: { offline: boolean }) {
       if (event.type !== "message" || event.direction === "outbound") return;
       const message = eventToRemoteMessage(event);
       if (!message) return;
+      const conversationId = remoteConversationId(message.chatId);
+      const currentConversation = data.conversations.find((item) => item.id === conversationId);
+      const currentContact = currentConversation
+        ? data.contacts.find((item) => item.id === currentConversation.contactId)
+        : undefined;
+      const shouldAutoReply = Boolean(currentConversation?.aiMode === "Autopiloto" && data.aiEnabled && !data.emergency);
       setData((d) => addRemoteMessage(d, message));
-      if (!selected || !data.conversations.some((item) => item.id === remoteConversationId(message.chatId))) {
-        setSelected(remoteConversationId(message.chatId));
+      if (!selected || !data.conversations.some((item) => item.id === conversationId)) {
+        setSelected(conversationId);
+      }
+      if (shouldAutoReply) {
+        const reply = localAiReply(message.text, currentContact?.name || "cliente");
+        void new WhatsAppProvider().send(conversationId, reply.body, message.chatId)
+          .then((result) => setData((d) => addRemoteMessage(d, {
+            id: result.id,
+            direction: "outbound",
+            chatId: message.chatId,
+            sender: null,
+            text: reply.body,
+            timestamp: new Date().toISOString(),
+            fromMe: true,
+          })))
+          .catch((error) => setToast(error instanceof Error ? `IA no pudo responder: ${error.message}` : "IA no pudo responder"));
       }
     });
   }, [realBackend, selected, data.conversations, setData]);
