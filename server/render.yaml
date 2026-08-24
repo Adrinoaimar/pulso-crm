@@ -1,6 +1,7 @@
 services:
   - type: web
     name: pulso-crm-whatsapp
+    plan: free
     rootDir: server
     runtime: node
     buildCommand: npm ci
@@ -15,7 +16,3 @@ services:
         sync: false
       - key: AUTH_DIR
         value: .data/auth
-    disk:
-      name: whatsapp-auth
-      mountPath: /opt/render/project/src/server/.data
-      sizeGB: 1
