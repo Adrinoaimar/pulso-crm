@@ -23,7 +23,10 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      - run: npm run build
+      - name: Build frontend
+        run: npm run build
+        env:
+          VITE_WA_BACKEND_URL: ${{ vars.VITE_WA_BACKEND_URL }}
       - uses: actions/configure-pages@v5
         with:
           enablement: true
