@@ -147,8 +147,8 @@ export default function App() {
       </header>
       {offline && (
         <div className="offline">
-          <WifiOff /> Sin conexión. Respuestas deshabilitadas; cambios seguros
-          quedarán en cola.
+          <WifiOff /> Sin conexión externa. Modo local activo; mensajes y cambios
+          quedan guardados en este navegador.
         </div>
       )}
       <main>
