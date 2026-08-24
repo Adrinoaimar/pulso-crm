@@ -17,6 +17,8 @@ export type Contact = {
   id: string;
   name: string;
   phone: string;
+  /** JID real de WhatsApp (incluye @g.us, @s.whatsapp.net o @lid). */
+  whatsappId?: string;
   email: string;
   company: string;
   tags: string[];

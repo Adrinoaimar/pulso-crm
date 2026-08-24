@@ -101,6 +101,7 @@ const remoteContact = (chatId: string): Contact => {
     id: `wa-contact-${chatId.replace(/[^a-zA-Z0-9_-]/g, "-")}`,
     name: phone ? `WhatsApp +${phone}` : "Contacto de WhatsApp",
     phone: phone ? `+${phone}` : chatId,
+    whatsappId: chatId,
     email: "",
     company: "WhatsApp",
     tags: ["WhatsApp"],
@@ -425,7 +426,7 @@ export function Inbox({ offline }: { offline: boolean }) {
     const integration = getWhatsAppIntegration();
     if (!note && integration.real && integration.connection === "connected") {
       try {
-        const result = await new WhatsAppProvider().send(cv.id, body, contact?.phone);
+        const result = await new WhatsAppProvider().send(cv.id, body, contact?.whatsappId || contact?.phone);
         setData((d) => ({
           ...d,
           conversations: d.conversations.map((x) => x.id === cv.id ? {
