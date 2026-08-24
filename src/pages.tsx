@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ArrowRight,
   ArrowUpRight,
@@ -34,10 +34,17 @@ import type { Automation, Contact, Deal, Module } from "./types";
 import { Drawer, Empty, Pill, Signal, Toast } from "./components";
 import {
   clearWhatsAppApiKey,
-  disconnectWhatsApp,
+  disconnectWhatsAppRemote,
+  connectWhatsAppQr,
+  fetchWhatsAppQr,
+  fetchWhatsAppStatus,
   getWhatsAppIntegration,
+  getWhatsAppBackendUrl,
+  saveWhatsAppBackendUrl,
   saveWhatsAppApiKey,
-  setWhatsAppQrConnected,
+  subscribeWhatsAppStatus,
+  subscribeWhatsAppEvents,
+  WhatsAppProvider,
 } from "./providers";
 const money = (n: number) =>
   new Intl.NumberFormat("es-PE", {
@@ -237,6 +244,25 @@ export function Inbox({ offline }: { offline: boolean }) {
   );
   const cv = data.conversations.find((x) => x.id === selected);
   const contact = data.contacts.find((x) => x.id === cv?.contactId);
+  const realBackend = getWhatsAppIntegration().real;
+  useEffect(() => {
+    if (!realBackend) return;
+    return subscribeWhatsAppEvents((event) => {
+      if (event.type !== "message" || event.direction === "outbound") return;
+      const body = event.text || event.body;
+      if (!body) return;
+      const remotePhone = (event.from || event.phone || event.sender || event.chatId || "").replace(/\D/g, "");
+      setData((d) => {
+        const conversation = d.conversations.find((item) => {
+          if (event.conversationId) return item.id === event.conversationId;
+          const phone = d.contacts.find((candidate) => candidate.id === item.contactId)?.phone.replace(/\D/g, "") || "";
+          return Boolean(remotePhone && phone && (remotePhone.endsWith(phone) || phone.endsWith(remotePhone)));
+        });
+        if (!conversation) return d;
+        return { ...d, conversations: d.conversations.map((item) => item.id === conversation.id ? { ...item, messages: [...item.messages, { id: event.id || crypto.randomUUID(), from: "contact", body, time: "Ahora" }], unread: item.id === selected ? 0 : item.unread + 1, status: "abierta" } : item) };
+      });
+    });
+  }, [realBackend, selected, setData]);
   const update = (patch: Partial<NonNullable<typeof cv>>) =>
     setData((d) => ({
       ...d,
@@ -244,9 +270,30 @@ export function Inbox({ offline }: { offline: boolean }) {
         x.id === selected ? { ...x, ...patch } : x,
       ),
     }));
-  const send = () => {
+  const send = async () => {
     if (!draft.trim() || !cv) return;
     const body = draft.trim();
+    const integration = getWhatsAppIntegration();
+    if (!note && integration.real && integration.connection === "connected") {
+      try {
+        const result = await new WhatsAppProvider().send(cv.id, body, contact?.phone);
+        setData((d) => ({
+          ...d,
+          conversations: d.conversations.map((x) => x.id === cv.id ? {
+            ...x,
+            messages: [...x.messages, { id: result.id, from: "agent", body, time: "Ahora", note: false }],
+            unread: 0,
+            status: "esperando",
+          } : x),
+        }));
+        setDraft("");
+        return;
+      } catch (error) {
+        setToast(error instanceof Error ? `No enviado: ${error.message}` : "No enviado: error de backend");
+        setTimeout(() => setToast(""), 3200);
+        return;
+      }
+    }
     setData((d) => ({
       ...d,
       conversations: d.conversations.map((x) =>
@@ -270,6 +317,8 @@ export function Inbox({ offline }: { offline: boolean }) {
       ),
     }));
     setDraft("");
+    setToast(note ? "Nota interna guardada" : integration.real ? "Modo demo: backend no conectado" : "Mensaje local guardado (modo demo)");
+    setTimeout(() => setToast(""), 2600);
   };
   const suggest = () => {
     if (!cv || !contact) return;
@@ -1408,70 +1457,77 @@ export function Analytics() {
   );
 }
 
-function QrVisual({ seed }: { seed: string }) {
-  const size = 29;
-  const cells: boolean[][] = Array.from({ length: size }, (_, y) =>
-    Array.from({ length: size }, (_, x) => {
-      const inFinder = (ox: number, oy: number) =>
-        x >= ox && x < ox + 7 && y >= oy && y < oy + 7;
-      const finder = (ox: number, oy: number) => {
-        if (!inFinder(ox, oy)) return false;
-        const dx = x - ox;
-        const dy = y - oy;
-        return dx === 0 || dx === 6 || dy === 0 || dy === 6 || (dx >= 2 && dx <= 4 && dy >= 2 && dy <= 4);
-      };
-      if (finder(0, 0) || finder(size - 7, 0) || finder(0, size - 7)) return true;
-      if (
-        (x < 8 && y < 8) ||
-        (x >= size - 8 && y < 8) ||
-        (x < 8 && y >= size - 8)
-      ) return false;
-      if (x === 6 || y === 6) return (x + y) % 2 === 0;
-      const code = seed.charCodeAt((x * 13 + y * 7) % seed.length) || 41;
-      return (code + x * 17 + y * 11) % 3 !== 0;
-    }),
-  );
-  return (
-    <div className="qr-visual" role="img" aria-label="Código QR de vinculación">
-      <svg viewBox={`0 0 ${size} ${size}`} shapeRendering="crispEdges">
-        <rect width={size} height={size} fill="white" />
-        {cells.flatMap((row, y) =>
-          row.map((active, x) =>
-            active ? <rect key={`${x}-${y}`} x={x} y={y} width="1" height="1" fill="#17251D" /> : null,
-          ),
-        )}
-      </svg>
-      <span>QR</span>
-    </div>
-  );
-}
-
 export function SettingsPage() {
   const [section, setSection] = useState("Integraciones");
   const [integration, setIntegration] = useState(getWhatsAppIntegration);
   const [qrOpen, setQrOpen] = useState(false);
-  const [qrSeed, setQrSeed] = useState(() => crypto.randomUUID());
-  const [qrStatus, setQrStatus] = useState<"scanning" | "connected">("scanning");
+  const [qrStatus, setQrStatus] = useState(integration.connection);
+  const [qrDataUrl, setQrDataUrl] = useState(integration.qrDataUrl);
+  const [qrError, setQrError] = useState("");
+  const [backendUrl, setBackendUrl] = useState(integration.backendUrl);
+  const [backendUrlDraft, setBackendUrlDraft] = useState(integration.backendUrl);
+  const [backendError, setBackendError] = useState("");
   const [apiOpen, setApiOpen] = useState(false);
   const [apiKey, setApiKey] = useState("");
   const [apiError, setApiError] = useState("");
-  const syncIntegration = () => setIntegration(getWhatsAppIntegration());
-  const connectedByQr = integration.connection === "connected" && integration.method === "qr";
+  const syncIntegration = () => {
+    const value = getWhatsAppIntegration();
+    setIntegration(value);
+    setBackendUrl(value.backendUrl);
+    setBackendUrlDraft(value.backendUrl);
+    setQrStatus(value.connection);
+    setQrDataUrl(value.qrDataUrl);
+  };
+  const connectedByQr = integration.connection === "connected" && integration.real;
+
+  useEffect(() => {
+    if (!integration.real) return;
+    return subscribeWhatsAppStatus((snapshot) => {
+      setQrStatus(snapshot.status);
+      setQrDataUrl(snapshot.qrDataUrl);
+      setIntegration(getWhatsAppIntegration());
+      if (snapshot.error) setQrError(snapshot.error);
+    }, (error) => setQrError(error.message));
+  }, [qrOpen, integration.real]);
 
   const openQr = () => {
-    setQrSeed(crypto.randomUUID());
-    setQrStatus(connectedByQr ? "connected" : "scanning");
+    setQrError("");
+    setQrStatus(integration.connection);
+    setQrDataUrl(integration.qrDataUrl);
     setQrOpen(true);
+    if (!integration.real) return;
+    void (async () => {
+      try {
+        const current = integration.connection === "connected" ? await fetchWhatsAppStatus() : await connectWhatsAppQr();
+        setQrStatus(current.status);
+        setQrDataUrl(current.qrDataUrl);
+        syncIntegration();
+      } catch (error) {
+        setQrStatus("error");
+        setQrError(error instanceof Error ? error.message : "No se pudo iniciar conexión QR");
+      }
+    })();
   };
-  const simulateScan = () => {
-    setWhatsAppQrConnected();
-    syncIntegration();
-    setQrStatus("connected");
+  const refreshQr = async () => {
+    if (!integration.real) return;
+    try {
+      const current = qrStatus === "disconnected" || qrStatus === "error"
+        ? await connectWhatsAppQr()
+        : await fetchWhatsAppQr();
+      setQrStatus(current.status);
+      setQrDataUrl(current.qrDataUrl);
+      setQrError("");
+    } catch (error) { setQrError(error instanceof Error ? error.message : "No se pudo obtener QR"); }
   };
-  const disconnect = () => {
-    disconnectWhatsApp();
-    syncIntegration();
-    setQrStatus("scanning");
+  const disconnect = async () => {
+    if (!integration.real) return;
+    try { await disconnectWhatsAppRemote(); syncIntegration(); setQrStatus("disconnected"); setQrDataUrl(undefined); }
+    catch (error) { setQrError(error instanceof Error ? error.message : "No se pudo desconectar"); }
+  };
+  const saveBackend = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    try { const clean = saveWhatsAppBackendUrl(backendUrlDraft); setBackendUrl(clean); setBackendError(""); syncIntegration(); }
+    catch (error) { setBackendError(error instanceof Error ? error.message : "URL inválida"); }
   };
   const submitApiKey = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -1525,19 +1581,26 @@ export function SettingsPage() {
           <h3>{section}</h3>
           {section === "Integraciones" ? (
             <>
-              <p>Conecta WhatsApp por QR. API key queda opcional para futuros proveedores.</p>
+              <p>Conecta WhatsApp por QR real usando bridge Baileys. Demo local existe solo para revisar interfaz.</p>
+              <form className="backend-url-form" onSubmit={saveBackend}>
+                <label>URL del backend QR
+                  <input value={backendUrlDraft} onChange={(event) => setBackendUrlDraft(event.target.value)} placeholder="https://tu-backend.example.com" inputMode="url" />
+                </label>
+                <button type="submit">Guardar URL</button>
+                {backendError && <small className="api-error">{backendError}</small>}
+              </form>
               <div className="integration integration-whatsapp">
                 <span className="provider-logo">WA</span>
                 <span>
                   <b>WhatsApp</b>
-                  <small>{connectedByQr ? "Sesión vinculada por QR" : "Sesión local lista para vincular"}</small>
+                  <small>{integration.real ? "Bridge configurado · QR real" : "Sin backend configurado · demo local explícito"}</small>
                 </span>
-                <Pill tone={connectedByQr ? "success" : integration.hasApiKey ? "info" : "warning"}>
-                  {connectedByQr ? "Conectado por QR" : integration.hasApiKey ? "API key guardada" : "Sin conexión"}
+                <Pill tone={connectedByQr ? "success" : integration.connection === "error" ? "danger" : integration.real ? "info" : "warning"}>
+                  {connectedByQr ? "Conectado por QR real" : integration.connection === "error" ? "Error de backend" : integration.real ? "Backend listo" : "Modo demo"}
                 </Pill>
                 <span className="integration-actions">
-                  <button className="primary" onClick={openQr}>
-                    <QrCode /> {connectedByQr ? "Gestionar QR" : "Conectar por QR"}
+                  <button className="primary" onClick={openQr} disabled={!integration.real} title={!integration.real ? "Configura URL de backend primero" : undefined}>
+                    <QrCode /> {connectedByQr ? "Gestionar QR" : "Conectar QR real"}
                   </button>
                   {connectedByQr && (
                     <button onClick={disconnect} title="Desconectar sesión QR">
@@ -1572,7 +1635,7 @@ export function SettingsPage() {
                 <button disabled>Configurar</button>
               </div>
               <div className="notice">
-                <LockKeyhole /> Las credenciales quedan solo en este navegador. Pulso no las muestra ni las envía desde esta demo.
+                <LockKeyhole /> API key queda en este navegador y se envía solo al backend configurado. Sin URL, no se generan QR falsos.
               </div>
             </>
           ) : (
@@ -1591,20 +1654,18 @@ export function SettingsPage() {
               <div className="qr-success">
                 <CheckCircle2 />
                 <h3>WhatsApp conectado</h3>
-                <p>Sesión vinculada en este navegador. Puedes cerrar esta ventana.</p>
+                <p>Sesión real vinculada en bridge{integration.phone ? ` · ${integration.phone}` : ""}.</p>
                 <Pill tone="success">Conectado por QR</Pill>
               </div>
             ) : (
               <>
-                <QrVisual seed={qrSeed} />
-                <h3>Escanea este código desde WhatsApp</h3>
-                <p>Abre WhatsApp, entra a Dispositivos vinculados y confirma el código.</p>
-                <div className="qr-status"><span className="qr-pulse" />Esperando escaneo…</div>
-                <button className="primary qr-simulate" onClick={simulateScan}>
-                  <CheckCircle2 /> Simular escaneo completado
-                </button>
-                <button className="link qr-refresh" onClick={() => setQrSeed(crypto.randomUUID())}>
-                  <RefreshCw /> Generar nuevo QR
+                {qrDataUrl ? <img className="qr-visual qr-image" src={qrDataUrl} alt="Código QR real de WhatsApp" /> : <div className="qr-placeholder"><QrCode /><span>Esperando QR del backend…</span></div>}
+                <h3>{qrStatus === "error" ? "No se pudo conectar" : "Escanea este código desde WhatsApp"}</h3>
+                <p>Abre WhatsApp, entra a Dispositivos vinculados y confirma código mostrado por bridge.</p>
+                <div className="qr-status"><span className={qrStatus === "error" ? "qr-pulse error" : "qr-pulse"} />{qrStatus === "error" ? "Backend con error" : qrStatus === "connecting" ? "Iniciando sesión…" : "Esperando escaneo…"}</div>
+                {qrError && <p className="api-error" role="alert">{qrError}</p>}
+                <button className="link qr-refresh" onClick={refreshQr}>
+                  <RefreshCw /> Obtener nuevo QR
                 </button>
               </>
             )}

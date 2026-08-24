@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: pulso-crm-whatsapp
+    runtime: node
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: CORS_ORIGIN
+        sync: false
+      - key: API_TOKEN
+        sync: false
+      - key: AUTH_DIR
+        value: .data/auth
+    disk:
+      name: whatsapp-auth
+      mountPath: /opt/render/project/src/server/.data
+      sizeGB: 1

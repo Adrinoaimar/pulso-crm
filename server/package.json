@@ -1,0 +1,22 @@
+{
+  "name": "pulso-crm-whatsapp-bridge",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "7.0.0-rc14",
+    "pino": "9.7.0",
+    "qrcode": "1.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "22.15.21",
+    "@types/qrcode": "1.5.5",
+    "tsx": "4.19.4",
+    "typescript": "5.8.3"
+  }
+}
