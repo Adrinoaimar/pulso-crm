@@ -117,6 +117,11 @@ function normalizeSnapshot(payload: Record<string, unknown> | undefined): WhatsA
 export async function fetchWhatsAppStatus() { const snapshot = normalizeSnapshot(await requestBackend("/api/whatsapp/status")); persistSnapshot(snapshot); return snapshot; }
 export async function connectWhatsAppQr() { const snapshot = normalizeSnapshot(await requestBackend("/api/whatsapp/connect", { method: "POST" })); persistSnapshot(snapshot); return snapshot; }
 export async function fetchWhatsAppQr() { const snapshot = normalizeSnapshot(await requestBackend("/api/whatsapp/qr")); persistSnapshot(snapshot); return snapshot; }
+export async function requestWhatsAppPairingCode(phone: string) {
+  const payload = await requestBackend("/api/whatsapp/pairing-code", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ phone }) });
+  if (typeof payload?.code !== "string" || !payload.code) throw new Error("El bridge no devolvió código de vinculación");
+  return payload.code;
+}
 export async function disconnectWhatsAppRemote() { const snapshot = normalizeSnapshot(await requestBackend("/api/whatsapp/disconnect", { method: "POST" })); persistSnapshot({ ...snapshot, status: "disconnected", qrDataUrl: undefined }); return snapshot; }
 export async function fetchWhatsAppMessages(): Promise<WhatsAppMessage[]> {
   const payload = await requestBackend("/api/whatsapp/messages");

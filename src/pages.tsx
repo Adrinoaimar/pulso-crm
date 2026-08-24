@@ -43,6 +43,7 @@ import {
   getWhatsAppBackendUrl,
   saveWhatsAppBackendUrl,
   saveWhatsAppApiKey,
+  requestWhatsAppPairingCode,
   subscribeWhatsAppStatus,
   subscribeWhatsAppEvents,
   type WhatsAppEvent,
@@ -1643,6 +1644,10 @@ export function SettingsPage() {
   const [qrStatus, setQrStatus] = useState(integration.connection);
   const [qrDataUrl, setQrDataUrl] = useState(integration.qrDataUrl);
   const [qrError, setQrError] = useState("");
+  const [pairingPhone, setPairingPhone] = useState("");
+  const [pairingCode, setPairingCode] = useState("");
+  const [pairingError, setPairingError] = useState("");
+  const [pairingLoading, setPairingLoading] = useState(false);
   const [backendUrl, setBackendUrl] = useState(integration.backendUrl);
   const [backendUrlDraft, setBackendUrlDraft] = useState(integration.backendUrl);
   const [backendError, setBackendError] = useState("");
@@ -1697,6 +1702,19 @@ export function SettingsPage() {
       setQrDataUrl(current.qrDataUrl);
       setQrError("");
     } catch (error) { setQrError(error instanceof Error ? error.message : "No se pudo obtener QR"); }
+  };
+  const requestPairing = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setPairingError("");
+    setPairingCode("");
+    setPairingLoading(true);
+    try {
+      setPairingCode(await requestWhatsAppPairingCode(pairingPhone));
+    } catch (error) {
+      setPairingError(error instanceof Error ? error.message : "No se pudo generar el código");
+    } finally {
+      setPairingLoading(false);
+    }
   };
   const disconnect = async () => {
     if (!integration.real) return;
@@ -1846,6 +1864,16 @@ export function SettingsPage() {
                 <button className="link qr-refresh" onClick={refreshQr}>
                   <RefreshCw /> Obtener nuevo QR
                 </button>
+                <form className="pairing-form" onSubmit={requestPairing}>
+                  <h4>¿No puedes escanear el QR?</h4>
+                  <p>Solicita un código y escríbelo en WhatsApp → Dispositivos vinculados → Vincular con número de teléfono.</p>
+                  <input value={pairingPhone} onChange={(event) => setPairingPhone(event.target.value)} placeholder="51912345678" inputMode="tel" aria-label="Número con código de país" />
+                  <button className="link" type="submit" disabled={pairingLoading || pairingPhone.replace(/\D/g, "").length < 8}>
+                    {pairingLoading ? "Generando…" : "Obtener código"}
+                  </button>
+                  {pairingCode && <code className="pairing-code">{pairingCode}</code>}
+                  {pairingError && <small className="api-error">{pairingError}</small>}
+                </form>
               </>
             )}
             {qrStatus === "connected" && (

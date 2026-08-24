@@ -298,6 +298,19 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     await startSocket();
     return json(res, 202, status);
   }
+  if (url.pathname === "/api/whatsapp/pairing-code" && req.method === "POST") {
+    try {
+      const body = await readJson(req);
+      const phone = typeof body.phone === "string" ? body.phone.replace(/\D/g, "") : "";
+      if (phone.length < 8) return json(res, 400, { error: "Indica el número con código de país, sin + ni espacios" });
+      await startSocket();
+      if (!socket) throw new Error("WhatsApp no está listo para generar código");
+      const code = await socket.requestPairingCode(phone);
+      return json(res, 200, { connection: status.connection, status: status.connection, code });
+    } catch (error) {
+      return json(res, 409, { error: errorMessage(error) });
+    }
+  }
   if (url.pathname === "/api/whatsapp/disconnect" && req.method === "POST") {
     await stopSocket();
     return json(res, 200, status);
