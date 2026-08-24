@@ -192,7 +192,8 @@ const addRemoteMessage = (data: Store, message: WhatsAppMessage): Store => {
 };
 export function Dashboard({ go }: { go: (m: Module) => void }) {
   const { data } = useStore();
-  const realConnected = getWhatsAppIntegration().real && getWhatsAppIntegration().connection === "connected";
+  const integration = getWhatsAppIntegration();
+  const realConnected = integration.real && integration.connection === "connected";
   const open = (realConnected ? data.conversations.filter((x) => x.id.startsWith("wa-")) : data.conversations).filter((x) => x.status !== "resuelta");
   const deals = realConnected ? data.deals.filter((deal) => !/^d[1-4]$/.test(deal.id)) : data.deals;
   return (
@@ -242,7 +243,11 @@ export function Dashboard({ go }: { go: (m: Module) => void }) {
               Ver bandeja
             </button>
           </header>
-          {open.slice(0, 3).map((v) => {
+          {open.length === 0 ? (
+            <div className="empty">
+              <p>{realConnected ? "No hay conversaciones reales pendientes." : "No hay conversaciones pendientes."}</p>
+            </div>
+          ) : open.slice(0, 3).map((v) => {
             const c = data.contacts.find((x) => x.id === v.contactId)!;
             return (
               <button
@@ -324,7 +329,7 @@ export function Dashboard({ go }: { go: (m: Module) => void }) {
               <span>{s}</span>
               <b>
                 {money(
-                deals
+                  deals
                     .filter((x) => x.stage === s)
                     .reduce((a, x) => a + x.value, 0),
                 )}
@@ -817,7 +822,8 @@ export function Contacts() {
   const [q, setQ] = useState("");
   const [open, setOpen] = useState<Contact | null>(null);
   const [creating, setCreating] = useState(false);
-  const realConnected = getWhatsAppIntegration().real && getWhatsAppIntegration().connection === "connected";
+  const integration = getWhatsAppIntegration();
+  const realConnected = integration.real && integration.connection === "connected";
   const visibleContacts = realConnected ? data.contacts.filter((contact) => !/^c[1-4]$/.test(contact.id)) : data.contacts;
   const list = visibleContacts.filter((c) =>
     (c.name + c.company + c.phone).toLowerCase().includes(q.toLowerCase()),
@@ -1014,7 +1020,8 @@ export function Pipeline() {
   const { data, setData } = useStore();
   const [toast, setToast] = useState("");
   const [creating, setCreating] = useState(false);
-  const realConnected = getWhatsAppIntegration().real && getWhatsAppIntegration().connection === "connected";
+  const integration = getWhatsAppIntegration();
+  const realConnected = integration.real && integration.connection === "connected";
   const visibleDeals = realConnected ? data.deals.filter((deal) => !/^d[1-4]$/.test(deal.id)) : data.deals;
   const visibleContacts = realConnected ? data.contacts.filter((contact) => !/^c[1-4]$/.test(contact.id)) : data.contacts;
   const move = (deal: Deal, stage: string) => {
@@ -1035,7 +1042,7 @@ export function Pipeline() {
             {money(visibleDeals.reduce((s, x) => s + x.value, 0))} en valor total
           </p>
         </div>
-        <button className="primary" onClick={() => setCreating(true)}>
+        <button className="primary" onClick={() => setCreating(true)} disabled={realConnected && !visibleContacts.length}>
           <Plus /> Nuevo negocio
         </button>
       </div>
