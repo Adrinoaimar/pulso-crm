@@ -25,6 +25,8 @@ Si defines `API_TOKEN`, incluye `X-Pulso-Token` o `Authorization: Bearer <token>
 
 ## Render / Railway
 
+Despliegue rápido en Render: [crear Blueprint desde este repositorio](https://dashboard.render.com/blueprint/new?repo=https%3A%2F%2Fgithub.com%2FAdrinoaimar%2Fpulso-crm). Selecciona `server/render.yaml`, define `CORS_ORIGIN` con `https://adrinoaimar.github.io` y conserva volumen persistente.
+
 Crear servicio Node desde subdirectorio `server`:
 
 - Build command: `npm ci`
