@@ -1,0 +1,148 @@
+- generic [ref=f2e3]:
+  - complementary "Navegación principal" [ref=f2e4]:
+    - button "Pulso inicio" [ref=f2e5] [cursor=pointer]:
+      - generic [ref=f2e6]: P
+    - navigation [ref=f2e7]:
+      - button "Inicio" [ref=f2e8] [cursor=pointer]
+      - button "Bandeja" [ref=f2e15] [cursor=pointer]
+      - button "Contactos" [ref=f2e20] [cursor=pointer]
+      - button "Negocios" [ref=f2e27] [cursor=pointer]
+      - button "Automatización" [ref=f2e33] [cursor=pointer]
+    - navigation [ref=f2e39]:
+      - button "Agente IA" [ref=f2e40] [cursor=pointer]
+      - button "Analítica" [ref=f2e45] [cursor=pointer]
+      - button "Configuración" [ref=f2e49] [cursor=pointer]
+      - button "Contraer" [ref=f2e54] [cursor=pointer]
+  - banner [ref=f2e59]:
+    - generic [ref=f2e60]:
+      - paragraph [ref=f2e61]: PULSO / OPERACIÓN
+      - heading "Bandeja compartida" [level=1] [ref=f2e62]
+    - generic [ref=f2e63]:
+      - generic [ref=f2e67]: Búsqueda global
+      - textbox "Búsqueda global /" [ref=f2e68]:
+        - /placeholder: Buscar en Pulso
+      - generic [ref=f2e69]: /
+    - button "Equipo activo" [ref=f2e70] [cursor=pointer]
+    - button "Menú de Ana Torres" [ref=f2e75] [cursor=pointer]: AT
+  - main [ref=f2e76]:
+    - generic [ref=f2e77]:
+      - complementary [ref=f2e78]:
+        - generic [ref=f2e79]:
+          - paragraph [ref=f2e80]: COLAS
+          - button [ref=f2e81] [cursor=pointer]
+        - button "Todas 4" [ref=f2e83] [cursor=pointer]:
+          - generic [ref=f2e84]: Todas
+          - generic [ref=f2e85]: "4"
+        - button "Ventas 2" [ref=f2e86] [cursor=pointer]:
+          - generic [ref=f2e87]: Ventas
+          - generic [ref=f2e88]: "2"
+        - button "Soporte 1" [ref=f2e89] [cursor=pointer]:
+          - generic [ref=f2e90]: Soporte
+          - generic [ref=f2e91]: "1"
+        - button "Renovaciones 1" [ref=f2e92] [cursor=pointer]:
+          - generic [ref=f2e93]: Renovaciones
+          - generic [ref=f2e94]: "1"
+        - paragraph [ref=f2e95]: VISTAS
+        - button "Sin asignar 0" [ref=f2e96] [cursor=pointer]:
+          - generic [ref=f2e97]: Sin asignar
+          - generic [ref=f2e98]: "0"
+        - button "Por vencer 2" [ref=f2e99] [cursor=pointer]:
+          - generic [ref=f2e100]: Por vencer
+          - generic [ref=f2e101]: "2"
+        - button "Resueltas 1" [ref=f2e102] [cursor=pointer]:
+          - generic [ref=f2e103]: Resueltas
+          - generic [ref=f2e104]: "1"
+      - listbox "Conversaciones" [ref=f2e105]:
+        - generic [ref=f2e106]:
+          - textbox [ref=f2e111]:
+            - /placeholder: Buscar conversaciones
+          - button [ref=f2e112] [cursor=pointer]
+        - generic [ref=f2e115]:
+          - generic [ref=f2e116]: 4 conversaciones
+          - button "Más recientes" [ref=f2e117] [cursor=pointer]
+        - option "Estado alta CV Camila Vega Ahora Perfecto, preparo la propuesta y te la envío hoy. Ventas VIP 2" [selected] [ref=f2e120] [cursor=pointer]:
+          - generic "Estado alta" [ref=f2e121]
+          - generic [ref=f2e125]: CV
+          - generic [ref=f2e126]:
+            - generic [ref=f2e127]:
+              - generic [ref=f2e128]: Camila Vega
+              - time [ref=f2e129]: Ahora
+            - generic [ref=f2e130]: Perfecto, preparo la propuesta y te la envío hoy.
+            - generic [ref=f2e131]:
+              - emphasis [ref=f2e132]: Ventas
+              - emphasis [ref=f2e133]: VIP
+          - generic [ref=f2e134]: "2"
+        - option "Estado media DL Diego Luna Ayer Gracias, lo reviso con operaciones. Ventas Empresa" [ref=f2e135] [cursor=pointer]:
+          - generic "Estado media" [ref=f2e136]
+          - generic [ref=f2e140]: DL
+          - generic [ref=f2e141]:
+            - generic [ref=f2e142]:
+              - generic [ref=f2e143]: Diego Luna
+              - time [ref=f2e144]: Ayer
+            - generic [ref=f2e145]: Gracias, lo reviso con operaciones.
+            - generic [ref=f2e146]:
+              - emphasis [ref=f2e147]: Ventas
+              - emphasis [ref=f2e148]: Empresa
+        - option "Estado alta SP Sofía Paredes 10:08 He pausado la automatización y avisado al equipo. Soporte Nuevo 1" [ref=f2e149] [cursor=pointer]:
+          - generic "Estado alta" [ref=f2e150]
+          - generic [ref=f2e154]: SP
+          - generic [ref=f2e155]:
+            - generic [ref=f2e156]:
+              - generic [ref=f2e157]: Sofía Paredes
+              - time [ref=f2e158]: 10:08
+            - generic [ref=f2e159]: He pausado la automatización y avisado al equipo.
+            - generic [ref=f2e160]:
+              - emphasis [ref=f2e161]: Soporte
+              - emphasis [ref=f2e162]: Nuevo
+          - generic [ref=f2e163]: "1"
+        - option "Estado done MS Mateo Silva Lun Renovación confirmada. Gracias por continuar con nosotros. Renovaciones Renovación" [ref=f2e164] [cursor=pointer]:
+          - generic "Estado done" [ref=f2e165]
+          - generic [ref=f2e169]: MS
+          - generic [ref=f2e170]:
+            - generic [ref=f2e171]:
+              - generic [ref=f2e172]: Mateo Silva
+              - time [ref=f2e173]: Lun
+            - generic [ref=f2e174]: Renovación confirmada. Gracias por continuar con nosotros.
+            - generic [ref=f2e175]:
+              - emphasis [ref=f2e176]: Renovaciones
+              - emphasis [ref=f2e177]: Renovación
+      - generic [ref=f2e178]:
+        - generic [ref=f2e179]:
+          - button "CV" [ref=f2e180] [cursor=pointer]
+          - generic [ref=f2e181]:
+            - heading "Camila Vega" [level=3] [ref=f2e182]
+            - paragraph [ref=f2e183]: Átomo Studio · Ventas
+          - combobox "Responsable" [ref=f2e184]:
+            - option "Ana Torres" [selected]
+            - option "Luis Rojas"
+            - option "Mara Díaz"
+          - button [ref=f2e185] [cursor=pointer]
+        - generic [ref=f2e190]:
+          - generic [ref=f2e194]:
+            - text: Copiloto
+            - generic [ref=f2e195]: La IA prepara borradores; tú decides qué enviar.
+          - combobox [ref=f2e196]:
+            - option "Humano"
+            - option "Copiloto" [selected]
+            - option "Autopiloto"
+        - log [ref=f2e197]:
+          - generic [ref=f2e198]: HOY
+          - article [ref=f2e199]:
+            - paragraph [ref=f2e200]: Hola, quisiera cotizar el plan para mi equipo de 12 personas.
+            - time [ref=f2e201]: 09:42
+          - article [ref=f2e202]:
+            - paragraph [ref=f2e203]: "Borrador: Claro, Camila. Para 12 personas podemos preparar una propuesta. ¿Cuándo esperas iniciar?"
+            - time [ref=f2e204]: 09:43 · ✓✓
+          - article [ref=f2e205]:
+            - paragraph [ref=f2e206]: Perfecto, preparo la propuesta y te la envío hoy.
+            - time [ref=f2e207]: Ahora · ✓✓
+        - generic [ref=f2e208]:
+          - generic [ref=f2e209]:
+            - button "Respuesta" [ref=f2e210] [cursor=pointer]
+            - button "Nota interna" [ref=f2e211] [cursor=pointer]
+            - button "Sugerir" [ref=f2e212] [cursor=pointer]
+          - textbox "Escribe un mensaje…" [ref=f2e216]
+          - generic [ref=f2e217]:
+            - button "Adjuntos próximamente" [disabled] [ref=f2e218]
+            - generic [ref=f2e221]: Enter para enviar · Shift+Enter nueva línea
+            - button "Enviar" [disabled] [ref=f2e222]
