@@ -5,7 +5,6 @@ import { fileURLToPath } from "node:url";
 import makeWASocket, {
   DisconnectReason,
   makeCacheableSignalKeyStore,
-  Browsers,
   useMultiFileAuthState,
   type WASocket,
 } from "@whiskeysockets/baileys";
@@ -191,8 +190,9 @@ async function startSocket(): Promise<void> {
       printQRInTerminal: false,
       logger,
       markOnlineOnConnect: false,
-      browser: Browsers.macOS("Desktop"),
-      syncFullHistory: true,
+      // Mantener el navegador predeterminado de Baileys evita cierres prematuros
+      // del socket en Render Free; los mensajes nuevos siguen llegando por notify.
+      syncFullHistory: false,
     });
     socket.ev.on("creds.update", saveCreds);
     socket.ev.on("connection.update", async ({ connection, lastDisconnect, qr }) => {
