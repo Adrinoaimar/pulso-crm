@@ -1,6 +1,7 @@
 services:
   - type: web
     name: pulso-crm-whatsapp
+    rootDir: server
     runtime: node
     buildCommand: npm ci
     startCommand: npm start
