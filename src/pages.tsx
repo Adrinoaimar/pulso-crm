@@ -6,6 +6,7 @@ import {
   Check,
   ChevronDown,
   CircleAlert,
+  CheckCircle2,
   Clock3,
   Filter,
   GripVertical,
@@ -14,6 +15,11 @@ import {
   Pause,
   Play,
   Plus,
+  QrCode,
+  RefreshCw,
+  KeyRound,
+  LockKeyhole,
+  Link2Off,
   Search,
   Send,
   ShieldAlert,
@@ -26,12 +32,50 @@ import { useStore } from "./store";
 import { users } from "./data";
 import type { Automation, Contact, Deal, Module } from "./types";
 import { Drawer, Empty, Pill, Signal, Toast } from "./components";
+import {
+  clearWhatsAppApiKey,
+  disconnectWhatsApp,
+  getWhatsAppIntegration,
+  saveWhatsAppApiKey,
+  setWhatsAppQrConnected,
+} from "./providers";
 const money = (n: number) =>
   new Intl.NumberFormat("es-PE", {
     style: "currency",
     currency: "PEN",
     maximumFractionDigits: 0,
   }).format(n);
+
+/**
+ * Respuesta determinista para la demo local. No necesita red ni una API:
+ * sirve para probar Copiloto/Autopiloto mientras se conecta un proveedor QR.
+ */
+const localAiReply = (message: string, contactName: string) => {
+  const text = message.toLowerCase();
+  const needsHuman = /(persona|humano|asesor|contrato|reclamo|denuncia|datos sensibles)/i.test(message);
+  if (needsHuman) {
+    return {
+      body: `Entiendo, ${contactName.split(" ")[0]}. He avisado al equipo para que una persona continúe contigo.`,
+      escalates: true,
+    };
+  }
+  if (/(precio|cotiz|costo|plan|tarifa)/i.test(text)) {
+    return {
+      body: `Gracias por escribir, ${contactName.split(" ")[0]}. Puedo preparar una cotización a tu medida. ¿Cuántas personas usarán el servicio y cuándo desean iniciar?`,
+      escalates: false,
+    };
+  }
+  if (/(hola|buenas|información|info)/i.test(text)) {
+    return {
+      body: `¡Hola, ${contactName.split(" ")[0]}! Soy el asistente de Pulso. Cuéntame qué necesitas y te ayudo enseguida.`,
+      escalates: false,
+    };
+  }
+  return {
+    body: `Gracias por tu mensaje, ${contactName.split(" ")[0]}. Revisaré tu solicitud y te propongo el siguiente paso. ¿Qué fecha te viene mejor?`,
+    escalates: false,
+  };
+};
 export function Dashboard({ go }: { go: (m: Module) => void }) {
   const { data } = useStore();
   const open = data.conversations.filter((x) => x.status !== "resuelta");
@@ -186,6 +230,7 @@ export function Inbox({ offline }: { offline: boolean }) {
   const [draft, setDraft] = useState("");
   const [note, setNote] = useState(false);
   const [context, setContext] = useState(false);
+  const [toast, setToast] = useState("");
   const composer = useRef<HTMLTextAreaElement>(null);
   const list = data.conversations.filter(
     (x) => queue === "Todas" || x.queue === queue,
@@ -201,6 +246,7 @@ export function Inbox({ offline }: { offline: boolean }) {
     }));
   const send = () => {
     if (!draft.trim() || !cv) return;
+    const body = draft.trim();
     setData((d) => ({
       ...d,
       conversations: d.conversations.map((x) =>
@@ -212,16 +258,85 @@ export function Inbox({ offline }: { offline: boolean }) {
                 {
                   id: crypto.randomUUID(),
                   from: "agent",
-                  body: draft,
+                  body,
                   time: "Ahora",
                   note,
                 },
               ],
+              unread: 0,
+              status: note ? x.status : "esperando",
             }
           : x,
       ),
     }));
     setDraft("");
+  };
+  const suggest = () => {
+    if (!cv || !contact) return;
+    const incoming = [...cv.messages].reverse().find((m) => m.from === "contact");
+    if (!incoming) return;
+    setDraft(localAiReply(incoming.body, contact.name).body);
+    setNote(false);
+    composer.current?.focus();
+  };
+  const simulateIncoming = () => {
+    if (!cv || !contact) return;
+    const incoming = "¿Podrían compartir información y próximos pasos?";
+    setData((d) => ({
+      ...d,
+      conversations: d.conversations.map((x) => {
+        if (x.id !== cv.id) return x;
+        const incomingMessage = {
+          id: crypto.randomUUID(),
+          from: "contact" as const,
+          body: incoming,
+          time: "Ahora",
+        };
+        const base = {
+          ...x,
+          messages: [...x.messages, incomingMessage],
+          unread: x.unread + 1,
+          status: "abierta" as const,
+        };
+        if (x.aiMode !== "Autopiloto" || !d.aiEnabled || d.emergency) return base;
+        const reply = localAiReply(incoming, contact.name);
+        return {
+          ...base,
+          messages: [
+            ...base.messages,
+            {
+              id: crypto.randomUUID(),
+              from: "ai" as const,
+              body: reply.body,
+              time: "Ahora",
+            },
+          ],
+          status: reply.escalates ? ("esperando" as const) : ("abierta" as const),
+        };
+      }),
+    }));
+    setToast(
+      cv.aiMode === "Autopiloto" && data.aiEnabled && !data.emergency
+        ? "Mensaje recibido y respuesta IA enviada"
+        : "Mensaje de prueba recibido",
+    );
+    setTimeout(() => setToast(""), 2600);
+  };
+  const createDeal = () => {
+    if (!contact) return;
+    const deal: Deal = {
+      id: crypto.randomUUID(),
+      contactId: contact.id,
+      title: `Nueva oportunidad · ${contact.company}`,
+      stage: "Nuevo",
+      value: 0,
+      probability: 15,
+      next: "Definir siguiente paso",
+    };
+    setData((d) => ({ ...d, deals: [deal, ...d.deals] }));
+    setContext(false);
+    setToast("Negocio creado en etapa Nuevo");
+    setTimeout(() => setToast(""), 2600);
   };
   return (
     <div
@@ -412,16 +527,24 @@ export function Inbox({ offline }: { offline: boolean }) {
               >
                 Nota interna
               </button>
-              <button className="ai-suggest">
+              <button className="ai-suggest" onClick={suggest} title="Usar respuesta local de IA">
                 <Sparkles /> Sugerir
+              </button>
+              <button className="ai-suggest" onClick={simulateIncoming} title="Agregar un mensaje de prueba">
+                <Bot /> Simular entrada
               </button>
             </div>
             <textarea
               ref={composer}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
-              placeholder={offline ? "Sin conexión" : "Escribe un mensaje…"}
-              disabled={offline}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  send();
+                }
+              }}
+              placeholder="Escribe un mensaje…"
             />
             <div>
               <button
@@ -434,12 +557,14 @@ export function Inbox({ offline }: { offline: boolean }) {
               <small>
                 {note
                   ? "Solo visible para tu equipo"
-                  : "Enter para enviar · Shift+Enter nueva línea"}
+                  : offline
+                    ? "Modo local · Enter para enviar"
+                    : "Enter para enviar · Shift+Enter nueva línea"}
               </small>
               <button
                 className="send"
                 onClick={send}
-                disabled={offline || !draft.trim()}
+                disabled={!draft.trim()}
               >
                 <Send /> Enviar
               </button>
@@ -480,8 +605,14 @@ export function Inbox({ offline }: { offline: boolean }) {
                 </span>
               </div>
             ))}
+          <div className="drawer-actions">
+            <button className="primary" onClick={createDeal}>
+              <Plus /> Crear negocio
+            </button>
+          </div>
         </Drawer>
       )}
+      {toast && <Toast>{toast}</Toast>}
     </div>
   );
 }
@@ -685,6 +816,7 @@ const stages = ["Nuevo", "Calificado", "Propuesta", "Ganado"];
 export function Pipeline() {
   const { data, setData } = useStore();
   const [toast, setToast] = useState("");
+  const [creating, setCreating] = useState(false);
   const move = (deal: Deal, stage: string) => {
     setData((d) => ({
       ...d,
@@ -703,7 +835,7 @@ export function Pipeline() {
             {money(data.deals.reduce((s, x) => s + x.value, 0))} en valor total
           </p>
         </div>
-        <button className="primary">
+        <button className="primary" onClick={() => setCreating(true)}>
           <Plus /> Nuevo negocio
         </button>
       </div>
@@ -776,13 +908,72 @@ export function Pipeline() {
                   </article>
                 );
               })}
-              <button className="add-card">
+              <button className="add-card" onClick={() => setCreating(true)}>
                 <Plus /> Añadir negocio
               </button>
             </section>
           );
         })}
       </div>
+      {creating && (
+        <Drawer title="Nuevo negocio" onClose={() => setCreating(false)}>
+          <form
+            className="form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const fd = new FormData(e.currentTarget);
+              const contactId = String(fd.get("contactId"));
+              const deal: Deal = {
+                id: crypto.randomUUID(),
+                contactId,
+                title: String(fd.get("title")),
+                stage: String(fd.get("stage")),
+                value: Number(fd.get("value")) || 0,
+                probability: Number(fd.get("probability")) || 10,
+                next: String(fd.get("next")),
+              };
+              setData((d) => ({ ...d, deals: [deal, ...d.deals] }));
+              setCreating(false);
+              setToast(`${deal.title} creado en ${deal.stage}`);
+              setTimeout(() => setToast(""), 2200);
+            }}
+          >
+            <label>
+              Nombre del negocio
+              <input name="title" required placeholder="Ej. Plan empresa" />
+            </label>
+            <label>
+              Contacto
+              <select name="contactId" required defaultValue={data.contacts[0]?.id}>
+                {data.contacts.map((c) => (
+                  <option value={c.id} key={c.id}>
+                    {c.name} · {c.company}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Etapa
+              <select name="stage" defaultValue="Nuevo">
+                {stages.map((s) => <option key={s}>{s}</option>)}
+              </select>
+            </label>
+            <label>
+              Valor estimado (PEN)
+              <input name="value" type="number" min="0" step="100" defaultValue="0" />
+            </label>
+            <label>
+              Probabilidad (%)
+              <input name="probability" type="number" min="0" max="100" defaultValue="20" />
+            </label>
+            <label>
+              Próximo paso
+              <input name="next" required defaultValue="Definir siguiente paso" />
+            </label>
+            <button className="primary" type="submit"><Plus /> Crear negocio</button>
+          </form>
+        </Drawer>
+      )}
       {toast && <Toast>{toast}</Toast>}
     </div>
   );
@@ -1217,8 +1408,87 @@ export function Analytics() {
   );
 }
 
+function QrVisual({ seed }: { seed: string }) {
+  const size = 29;
+  const cells: boolean[][] = Array.from({ length: size }, (_, y) =>
+    Array.from({ length: size }, (_, x) => {
+      const inFinder = (ox: number, oy: number) =>
+        x >= ox && x < ox + 7 && y >= oy && y < oy + 7;
+      const finder = (ox: number, oy: number) => {
+        if (!inFinder(ox, oy)) return false;
+        const dx = x - ox;
+        const dy = y - oy;
+        return dx === 0 || dx === 6 || dy === 0 || dy === 6 || (dx >= 2 && dx <= 4 && dy >= 2 && dy <= 4);
+      };
+      if (finder(0, 0) || finder(size - 7, 0) || finder(0, size - 7)) return true;
+      if (
+        (x < 8 && y < 8) ||
+        (x >= size - 8 && y < 8) ||
+        (x < 8 && y >= size - 8)
+      ) return false;
+      if (x === 6 || y === 6) return (x + y) % 2 === 0;
+      const code = seed.charCodeAt((x * 13 + y * 7) % seed.length) || 41;
+      return (code + x * 17 + y * 11) % 3 !== 0;
+    }),
+  );
+  return (
+    <div className="qr-visual" role="img" aria-label="Código QR de vinculación">
+      <svg viewBox={`0 0 ${size} ${size}`} shapeRendering="crispEdges">
+        <rect width={size} height={size} fill="white" />
+        {cells.flatMap((row, y) =>
+          row.map((active, x) =>
+            active ? <rect key={`${x}-${y}`} x={x} y={y} width="1" height="1" fill="#17251D" /> : null,
+          ),
+        )}
+      </svg>
+      <span>QR</span>
+    </div>
+  );
+}
+
 export function SettingsPage() {
   const [section, setSection] = useState("Integraciones");
+  const [integration, setIntegration] = useState(getWhatsAppIntegration);
+  const [qrOpen, setQrOpen] = useState(false);
+  const [qrSeed, setQrSeed] = useState(() => crypto.randomUUID());
+  const [qrStatus, setQrStatus] = useState<"scanning" | "connected">("scanning");
+  const [apiOpen, setApiOpen] = useState(false);
+  const [apiKey, setApiKey] = useState("");
+  const [apiError, setApiError] = useState("");
+  const syncIntegration = () => setIntegration(getWhatsAppIntegration());
+  const connectedByQr = integration.connection === "connected" && integration.method === "qr";
+
+  const openQr = () => {
+    setQrSeed(crypto.randomUUID());
+    setQrStatus(connectedByQr ? "connected" : "scanning");
+    setQrOpen(true);
+  };
+  const simulateScan = () => {
+    setWhatsAppQrConnected();
+    syncIntegration();
+    setQrStatus("connected");
+  };
+  const disconnect = () => {
+    disconnectWhatsApp();
+    syncIntegration();
+    setQrStatus("scanning");
+  };
+  const submitApiKey = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    try {
+      saveWhatsAppApiKey(apiKey);
+      setApiKey("");
+      setApiError("");
+      setApiOpen(false);
+      syncIntegration();
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : "API key no válida");
+    }
+  };
+  const removeApiKey = () => {
+    clearWhatsAppApiKey();
+    syncIntegration();
+  };
   return (
     <div className="page settings-page">
       <div className="page-head">
@@ -1255,18 +1525,42 @@ export function SettingsPage() {
           <h3>{section}</h3>
           {section === "Integraciones" ? (
             <>
-              <p>
-                Conecta proveedores externos cuando sus credenciales estén
-                disponibles.
-              </p>
-              <div className="integration">
+              <p>Conecta WhatsApp por QR. API key queda opcional para futuros proveedores.</p>
+              <div className="integration integration-whatsapp">
                 <span className="provider-logo">WA</span>
                 <span>
                   <b>WhatsApp</b>
-                  <small>Proveedor de mensajería</small>
+                  <small>{connectedByQr ? "Sesión vinculada por QR" : "Sesión local lista para vincular"}</small>
                 </span>
-                <Pill tone="warning">Pendiente de API</Pill>
-                <button>Configurar</button>
+                <Pill tone={connectedByQr ? "success" : integration.hasApiKey ? "info" : "warning"}>
+                  {connectedByQr ? "Conectado por QR" : integration.hasApiKey ? "API key guardada" : "Sin conexión"}
+                </Pill>
+                <span className="integration-actions">
+                  <button className="primary" onClick={openQr}>
+                    <QrCode /> {connectedByQr ? "Gestionar QR" : "Conectar por QR"}
+                  </button>
+                  {connectedByQr && (
+                    <button onClick={disconnect} title="Desconectar sesión QR">
+                      <Link2Off /> Desconectar
+                    </button>
+                  )}
+                </span>
+              </div>
+              <div className="integration integration-api">
+                <span className="provider-logo"><KeyRound /></span>
+                <span>
+                  <b>API key opcional</b>
+                  <small>{integration.hasApiKey ? "Clave guardada en este navegador" : "Añade clave para conectar un proveedor compatible"}</small>
+                </span>
+                <Pill tone={integration.hasApiKey ? "success" : "neutral"}>
+                  {integration.hasApiKey ? "Configurada" : "No configurada"}
+                </Pill>
+                <span className="integration-actions">
+                  <button onClick={() => { setApiError(""); setApiOpen(true); }}>
+                    <KeyRound /> {integration.hasApiKey ? "Actualizar" : "Agregar API key"}
+                  </button>
+                  {integration.hasApiKey && <button onClick={removeApiKey}>Eliminar</button>}
+                </span>
               </div>
               <div className="integration">
                 <span className="provider-logo">WH</span>
@@ -1278,8 +1572,7 @@ export function SettingsPage() {
                 <button disabled>Configurar</button>
               </div>
               <div className="notice">
-                <CircleAlert /> Esta demo no realiza llamadas externas ni
-                almacena credenciales.
+                <LockKeyhole /> Las credenciales quedan solo en este navegador. Pulso no las muestra ni las envía desde esta demo.
               </div>
             </>
           ) : (
@@ -1291,6 +1584,60 @@ export function SettingsPage() {
           )}
         </section>
       </div>
+      {qrOpen && (
+        <Drawer title="Vincular WhatsApp por QR" onClose={() => setQrOpen(false)}>
+          <div className="qr-connect">
+            {qrStatus === "connected" ? (
+              <div className="qr-success">
+                <CheckCircle2 />
+                <h3>WhatsApp conectado</h3>
+                <p>Sesión vinculada en este navegador. Puedes cerrar esta ventana.</p>
+                <Pill tone="success">Conectado por QR</Pill>
+              </div>
+            ) : (
+              <>
+                <QrVisual seed={qrSeed} />
+                <h3>Escanea este código desde WhatsApp</h3>
+                <p>Abre WhatsApp, entra a Dispositivos vinculados y confirma el código.</p>
+                <div className="qr-status"><span className="qr-pulse" />Esperando escaneo…</div>
+                <button className="primary qr-simulate" onClick={simulateScan}>
+                  <CheckCircle2 /> Simular escaneo completado
+                </button>
+                <button className="link qr-refresh" onClick={() => setQrSeed(crypto.randomUUID())}>
+                  <RefreshCw /> Generar nuevo QR
+                </button>
+              </>
+            )}
+            {qrStatus === "connected" && (
+              <button className="qr-disconnect" onClick={disconnect}><Link2Off /> Desconectar sesión</button>
+            )}
+          </div>
+        </Drawer>
+      )}
+      {apiOpen && (
+        <Drawer title="Agregar API key" onClose={() => setApiOpen(false)}>
+          <form className="api-key-form" onSubmit={submitApiKey}>
+            <div className="notice warning"><LockKeyhole /> Se guardará únicamente en localStorage de este navegador. Nunca quedará visible después de guardar.</div>
+            <label>
+              API key
+              <input
+                autoFocus
+                type="password"
+                value={apiKey}
+                onChange={(event) => setApiKey(event.target.value)}
+                placeholder="Pega tu clave aquí"
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </label>
+            {apiError && <p className="api-error" role="alert">{apiError}</p>}
+            <div className="drawer-actions">
+              <button type="button" onClick={() => setApiOpen(false)}>Cancelar</button>
+              <button className="primary" type="submit" disabled={apiKey.trim().length < 8}>Guardar clave</button>
+            </div>
+          </form>
+        </Drawer>
+      )}
     </div>
   );
 }
