@@ -36,6 +36,7 @@ import {
   clearWhatsAppApiKey,
   disconnectWhatsAppRemote,
   connectWhatsAppQr,
+  refreshWhatsAppQr,
   fetchWhatsAppMessages,
   fetchWhatsAppQr,
   fetchWhatsAppStatus,
@@ -1695,9 +1696,9 @@ export function SettingsPage() {
   const refreshQr = async () => {
     if (!integration.real) return;
     try {
-      const current = qrStatus === "disconnected" || qrStatus === "error"
-        ? await connectWhatsAppQr()
-        : await fetchWhatsAppQr();
+      const current = qrStatus === "connected"
+        ? await fetchWhatsAppStatus()
+        : await refreshWhatsAppQr();
       setQrStatus(current.status);
       setQrDataUrl(current.qrDataUrl);
       setQrError("");

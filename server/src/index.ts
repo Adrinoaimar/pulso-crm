@@ -47,6 +47,7 @@ let socket: WASocket | null = null;
 let reconnectTimer: NodeJS.Timeout | undefined;
 let manualStop = false;
 let connecting: Promise<void> | null = null;
+let socketGeneration = 0;
 let status: PublicStatus = {
   connection: "disconnected",
   qr: null,
@@ -176,13 +177,15 @@ function rememberBaileysMessages(incoming: any[]) {
 
 async function startSocket(): Promise<void> {
   if (connecting) return connecting;
-  if (socket && status.connection === "connected") return;
+  if (socket && (status.connection === "connecting" || status.connection === "qr" || status.connection === "connected")) return;
   manualStop = false;
+  const generation = ++socketGeneration;
   connecting = (async () => {
     await mkdir(authDir, { recursive: true });
     const { state, saveCreds } = await useMultiFileAuthState(authDir);
+    if (generation !== socketGeneration || manualStop) return;
     setStatus({ connection: "connecting", qr: null, qrDataUrl: null, lastError: null });
-    socket = makeWASocket({
+    const currentSocket = makeWASocket({
       auth: {
         creds: state.creds,
         keys: makeCacheableSignalKeyStore(state.keys, logger),
@@ -194,8 +197,12 @@ async function startSocket(): Promise<void> {
       // del socket en Render Free; los mensajes nuevos siguen llegando por notify.
       syncFullHistory: false,
     });
-    socket.ev.on("creds.update", saveCreds);
-    socket.ev.on("connection.update", async ({ connection, lastDisconnect, qr }) => {
+    socket = currentSocket;
+    currentSocket.ev.on("creds.update", () => {
+      if (generation === socketGeneration && socket === currentSocket) void saveCreds();
+    });
+    currentSocket.ev.on("connection.update", async ({ connection, lastDisconnect, qr }) => {
+      if (generation !== socketGeneration || socket !== currentSocket) return;
       if (qr) {
         let qrDataUrl: string | null = null;
         try {
@@ -210,10 +217,10 @@ async function startSocket(): Promise<void> {
           connection: "connected",
           qr: null,
           qrDataUrl: null,
-          phone: socket?.user?.id ?? null,
+          phone: currentSocket.user?.id ?? null,
           lastError: null,
         });
-        logger.info({ phone: socket?.user?.id }, "WhatsApp conectado");
+        logger.info({ phone: currentSocket.user?.id }, "WhatsApp conectado");
       }
       if (connection === "close") {
         const code = (lastDisconnect?.error as any)?.output?.statusCode;
@@ -227,10 +234,14 @@ async function startSocket(): Promise<void> {
         }
       }
     });
-    socket.ev.on("messages.upsert", ({ messages: incoming, type }) => {
+    currentSocket.ev.on("messages.upsert", ({ messages: incoming, type }) => {
+      if (generation !== socketGeneration || socket !== currentSocket) return;
       if (type === "notify" || type === "append") rememberBaileysMessages(incoming);
     });
-    socket.ev.on("messaging-history.set", ({ messages: history }) => rememberBaileysMessages(history));
+    currentSocket.ev.on("messaging-history.set", ({ messages: history }) => {
+      if (generation !== socketGeneration || socket !== currentSocket) return;
+      rememberBaileysMessages(history);
+    });
   })().finally(() => {
     connecting = null;
   });
@@ -240,16 +251,31 @@ async function startSocket(): Promise<void> {
 async function stopSocket() {
   manualStop = true;
   clearTimeout(reconnectTimer);
+  socketGeneration += 1;
   const current = socket;
   socket = null;
   if (current) {
     try {
-      current.ws.close();
+      await current.ws.close();
     } catch {
       // Socket may already be closed.
     }
   }
   setStatus({ connection: "disconnected", qr: null, qrDataUrl: null, phone: null });
+}
+
+async function refreshSocket() {
+  const pending = connecting;
+  await stopSocket();
+  if (pending) {
+    try {
+      await pending;
+    } catch {
+      // Failed socket is being replaced by a fresh one.
+    }
+  }
+  manualStop = false;
+  await startSocket();
 }
 
 async function sendMessage(to: string, text: string) {
@@ -296,6 +322,10 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
   }
   if (url.pathname === "/api/whatsapp/connect" && req.method === "POST") {
     await startSocket();
+    return json(res, 202, status);
+  }
+  if (url.pathname === "/api/whatsapp/refresh" && req.method === "POST") {
+    await refreshSocket();
     return json(res, 202, status);
   }
   if (url.pathname === "/api/whatsapp/pairing-code" && req.method === "POST") {
